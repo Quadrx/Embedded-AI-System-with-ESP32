@@ -1,0 +1,1 @@
+KiCad project files for the custom ESP32 PCB.
