@@ -16,11 +16,12 @@ Embedded AI system based on ESP32-S3, including custom PCB design, firmware deve
 - [8. Model Inputs and Output](#8-model-inputs-and-output)
 - [9. Experimental Methodology](#9-experimental-methodology)
 - [10. Experimental Evidence](#10-experimental-evidence)
-- [11. Hardware Issues and Recommendations](#11-hardware-issues-and-recommendations)
-- [12. Limitations](#12-limitations)
-- [13. How to Reproduce the Project](#13-how-to-reproduce-the-project)
-- [14. Future Work](#14-future-work)
-- [15. Conclusions](#15-conclusions)
+- [11. Additional Module: BLE Communication Between Raspberry Pi and ESP32](#11-additional-module-ble-communication-between-raspberry-pi-and-esp32)
+- [12. Hardware Issues and Recommendations](#12-hardware-issues-and-recommendations)
+- [13. Limitations](#13-limitations)
+- [14. How to Reproduce the Project](#14-how-to-reproduce-the-project)
+- [15. Future Work](#15-future-work)
+- [16. Conclusions](#16-conclusions)
 
 ---
 
@@ -53,7 +54,13 @@ The main objectives of the project are:
 ├── ai/
 │   ├── dataset_cooling.csv
 │   └── train_model.py
+├── ble/
+│   ├── esp32/
+│   │   └── ble_client.ino
+│   └── raspberry/
+│       └── mlx_ble.py
 ├── docs/
+│   ├── ble-raspberry-esp32.md
 │   └── logs/
 │       └── test-run-01.txt
 ├── firmware/
@@ -63,14 +70,9 @@ The main objectives of the project are:
     └── note.txt
 ```
 
-### Folder Description
+The repository is organized into five main areas. The `firmware` folder contains the embedded code that runs on the ESP32-S3 for thermal sensing, signal processing, and prediction support. The `ai` folder contains the dataset and Python training script used to build the neural network model. The `hardware` folder stores the compressed KiCad project and related notes for the custom PCB.
 
-- **firmware/**: embedded code running on the ESP32-S3  
-- **ai/**: Python script and dataset used to train the neural network  
-- **docs/logs/**: serial output logs collected during testing  
-- **hardware/**: compressed KiCad project and hardware notes  
-
----
+The `ble` folder contains an additional communication module in which a Raspberry Pi acts as a BLE server and an ESP32 acts as a BLE client. Finally, the `docs` folder stores supporting technical documentation and serial logs collected during testing.
 
 ## 4. System Description
 
@@ -209,21 +211,24 @@ For this reason, a lighter became a more practical heat source than the stove fo
 
 ## 10. Experimental Evidence
 
-### Dataset
-- [Cooling dataset](ai/dataset_cooling.csv)
+The project includes several files that help document both the embedded thermal prediction workflow and the BLE communication stage. The thermal dataset used for model training is available in [`ai/dataset_cooling.csv`](ai/dataset_cooling.csv), while a real serial output log from the ESP32 test run is stored in [`docs/logs/test-run-01.txt`](docs/logs/test-run-01.txt).
 
-### Serial Log
-- [Test run log](docs/logs/test-run-01.txt)
+The hardware design files are included in the compressed KiCad archive [`hardware/esp32(Final version).zip`](hardware/esp32(Final%20version).zip). In addition, a demonstration video showing the system in operation is available at the following link:
 
-### Hardware Files
-- [KiCad project archive](hardware/esp32(Final%20version).zip)
+[Watch the demo video](https://drive.google.com/file/d/1Ku_SDlaufHtSQT0y7ulRh_jtI_WYhIBA/view?usp=sharing)
 
-### Demo Video
-- [Watch the demo video](https://drive.google.com/file/d/1Ku_SDlaufHtSQT0y7ulRh_jtI_WYhIBA/view?usp=sharing)
 
----
+## 11. Additional Module: BLE Communication Between Raspberry Pi and ESP32
 
-## 11. Hardware Issues and Recommendations
+This repository also includes an additional Bluetooth Low Energy communication module that complements the thermal monitoring work. In this stage, the Raspberry Pi is connected to the MLX90614 sensor and acts as a BLE server. It reads the ambient and object temperature through I2C, formats the information as text, and continuously transmits it through a BLE characteristic.
+
+The ESP32 acts as a BLE client. It scans nearby BLE devices, searches for the Raspberry Pi server, connects to it, subscribes to BLE notifications, and prints the received temperature values in the serial monitor. This creates a simple real-time wireless link between sensing on the Raspberry Pi side and monitoring on the ESP32 side.
+
+The transmitted data uses a compact format such as `OBJ:26.15,AMB:24.80`, where `OBJ` represents the object temperature and `AMB` represents the ambient temperature. This approach makes the communication easy to inspect, debug, and extend.
+
+The code for this module is available in `ble/raspberry/mlx_ble.py` and `ble/esp32/ble_client.ino`. A more detailed technical explanation is included in [`docs/ble-raspberry-esp32.md`](docs/ble-raspberry-esp32.md).
+
+## 12. Hardware Issues and Recommendations
 
 During the hardware implementation, some practical issues were identified.
 
@@ -242,7 +247,7 @@ Additional holes were created for ground connections, and male-to-male headers w
 
 ---
 
-## 12. Limitations
+## 13. Limitations
 
 The project worked as a proof of concept, but several limitations were observed:
 
@@ -255,7 +260,7 @@ As a result, the system is functional, but the prediction quality depends strong
 
 ---
 
-## 13. How to Reproduce the Project
+## 14. How to Reproduce the Project
 
 ### Hardware
 1. Extract `hardware/esp32(Final version).zip`
@@ -282,7 +287,7 @@ As a result, the system is functional, but the prediction quality depends strong
 
 ---
 
-## 14. Future Work
+## 15. Future Work
 
 Possible improvements for future versions of the project include:
 
@@ -296,7 +301,7 @@ Possible improvements for future versions of the project include:
 
 ---
 
-## 15. Conclusions
+## 16. Conclusions
 
 This project successfully integrated custom PCB design, embedded firmware, thermal sensing, AI model training, and experimental validation around an ESP32-S3 platform.
 
