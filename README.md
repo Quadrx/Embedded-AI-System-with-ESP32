@@ -1,52 +1,122 @@
-# Embedded-AI-System-with-ESP32
+# Embedded AI Thermal Prediction System
 
-Embedded AI system based on ESP32-S3, including custom PCB design, firmware development, thermal sensing, AI model training, and on-device inference with TensorFlow Lite.
+Distributed thermal monitoring and prediction system based on an ESP32-S3, a Raspberry Pi Zero 2 W, an MLX90614 infrared temperature sensor, Bluetooth Low Energy, TensorFlow Lite, and a custom PCB.
 
 ---
 
 ## Table of Contents
 
 - [1. Project Overview](#1-project-overview)
-- [2. Project Objectives](#2-project-objectives)
-- [3. Repository Structure](#3-repository-structure)
-- [4. System Description](#4-system-description)
-- [5. Hardware Description](#5-hardware-description)
-- [6. Firmware Description](#6-firmware-description)
-- [7. AI Training Pipeline](#7-ai-training-pipeline)
-- [8. Model Inputs and Output](#8-model-inputs-and-output)
-- [9. Experimental Methodology](#9-experimental-methodology)
-- [10. Experimental Evidence](#10-experimental-evidence)
-- [11. Additional Module: BLE Communication Between Raspberry Pi and ESP32](#11-additional-module-ble-communication-between-raspberry-pi-and-esp32)
-- [12. Hardware Issues and Recommendations](#12-hardware-issues-and-recommendations)
-- [13. Limitations](#13-limitations)
-- [14. How to Reproduce the Project](#14-how-to-reproduce-the-project)
-- [15. Future Work](#15-future-work)
-- [16. Conclusions](#16-conclusions)
+- [2. Academic Scope and Development Stages](#2-academic-scope-and-development-stages)
+- [3. Architecture Evolution](#3-architecture-evolution)
+- [4. Repository Structure](#4-repository-structure)
+- [5. Hardware Platform](#5-hardware-platform)
+- [6. Standalone ESP32 Prototype](#6-standalone-esp32-prototype)
+- [7. BLE Communication Prototype](#7-ble-communication-prototype)
+- [8. Mini-Project 3](#8-mini-project-3)
+- [9. Final Project Architecture](#9-final-project-architecture)
+- [10. AI Model and Dataset](#10-ai-model-and-dataset)
+- [11. End-to-End Operation](#11-end-to-end-operation)
+- [12. Experimental Methodology](#12-experimental-methodology)
+- [13. Experimental Evidence](#13-experimental-evidence)
+- [14. Current Project Status](#14-current-project-status)
+- [15. Hardware Issues and Recommendations](#15-hardware-issues-and-recommendations)
+- [16. Limitations](#16-limitations)
+- [17. How to Reproduce the Project](#17-how-to-reproduce-the-project)
+- [18. Future Work](#18-future-work)
+- [19. Conclusions](#19-conclusions)
 
 ---
 
 ## 1. Project Overview
 
-This project presents the design and implementation of an embedded thermal monitoring system based on the ESP32-S3. The system combines a custom PCB designed in KiCad, firmware written in C/C++, thermal sensing with the MLX90614 infrared sensor, and a neural network trained in Python and prepared for embedded deployment through TensorFlow Lite.
+This project presents the development of an intelligent thermal monitoring and prediction system based on an ESP32-S3, a Raspberry Pi Zero 2 W, and an MLX90614 infrared temperature sensor.
 
-The main goal is to monitor the thermal behavior of an object, process the temperature evolution in real time, and estimate the time required for the thermal difference to reach a target threshold.
+The system was developed progressively through several prototypes. The first implementation performed sensor acquisition, thermal processing, physical-model estimation, and TensorFlow Lite inference directly on the ESP32-S3. A later prototype validated wireless temperature transmission through Bluetooth Low Energy. The final architecture distributes the system tasks between the custom ESP32-S3 board and the Raspberry Pi Zero 2 W.
+
+The main objective is to monitor the cooling behavior of an object and estimate the time required for the temperature difference between the object and its environment to reach 5 °C.
+
+The complete target architecture is:
+
+```text
+MLX90614
+    ↓
+Custom ESP32-S3 PCB
+    ↓ BLE temperature notifications
+Raspberry Pi Zero 2 W
+    ↓ preprocessing and TensorFlow Lite inference
+Cooling-time prediction
+    ↓ BLE prediction/control message
+ESP32-S3
+    ↓
+Monitoring or actuator response
+```
 
 ---
 
-## 2. Project Objectives
+## 2. Academic Scope and Development Stages
 
-The main objectives of the project are:
+The complete project was organized around two main academic stages: Mini-Project 3 and the Final Project.
 
-1. Design a custom PCB for an ESP32-S3-based system.
-2. Acquire object and ambient temperature using the MLX90614 sensor.
-3. Process thermal behavior in real time on the ESP32-S3.
-4. Estimate the cooling process using both a physical approach and an AI model.
-5. Train a neural network from experimental thermal data.
-6. Document the complete workflow from hardware design to embedded validation.
+### Mini-Project 3
+
+Mini-Project 3 focused on the implementation of artificial intelligence, IoT communication, firmware, and software using the Raspberry Pi Zero 2 W.
+
+During this stage, the thermal dataset was organized, the neural network was trained using TensorFlow/Keras, the model was converted to TensorFlow Lite, and BLE communication between the Raspberry Pi and the ESP32 was tested.
+
+The objective was to verify that the Raspberry Pi could receive temperature information, preprocess the input variables, execute the trained model, and generate a numerical cooling-time prediction.
+
+More information is available in:
+
+[Mini-Project 3 Documentation](docs/miniproject-3.md)
+
+### Final Project
+
+The Final Project integrates the Raspberry Pi Zero 2 W with the custom ESP32-S3 PCB to create a complete IoT and AI solution.
+
+In the target architecture, the ESP32-S3 acquires the MLX90614 measurements and publishes them through BLE. The Raspberry Pi receives the measurements, constructs the required temporal input vector, executes TensorFlow Lite inference, and sends the prediction back to the ESP32.
+
+More information is available in:
+
+[Final Project Documentation](docs/final-project.md)
 
 ---
 
-## 3. Repository Structure
+## 3. Architecture Evolution
+
+The repository contains implementations developed during different stages of the project. These implementations should not be interpreted as identical versions of the final system.
+
+### Stage 1: Standalone ESP32 Implementation
+
+The first firmware version placed most of the functionality directly on the ESP32-S3. This version included sensor acquisition, thermal filtering, physical-model estimation, temporal feature capture, and TensorFlow Lite inference.
+
+This implementation demonstrated that the ESP32-S3 could perform the complete thermal processing sequence locally.
+
+### Stage 2: BLE Communication Prototype
+
+A separate BLE proof of concept was developed to validate wireless communication. In this implementation, the Raspberry Pi acted as the BLE server and the ESP32 acted as the BLE client.
+
+The Raspberry Pi read the MLX90614 directly and transmitted messages such as:
+
+```text
+OBJ:26.15,AMB:24.80
+```
+
+The ESP32 connected to the server, subscribed to notifications, received the temperature values, and displayed them through the serial monitor.
+
+This prototype validated BLE discovery, connection, notification, and real-time data transmission.
+
+### Stage 3: Target Distributed Architecture
+
+The target architecture reverses the BLE roles used in the initial prototype.
+
+The ESP32-S3 becomes the GATT server and publishes the sensor measurements. The Raspberry Pi Zero 2 W becomes the GATT client and performs preprocessing, TensorFlow Lite inference, prediction generation, and higher-level decision-making.
+
+This separation allows the ESP32-S3 to handle real-time hardware operations while the Raspberry Pi performs the more computationally demanding AI tasks.
+
+---
+
+## 4. Repository Structure
 
 ```text
 .
@@ -61,6 +131,8 @@ The main objectives of the project are:
 │       └── mlx_ble.py
 ├── docs/
 │   ├── ble-raspberry-esp32.md
+│   ├── miniproject-3.md
+│   ├── final-project.md
 │   └── logs/
 │       └── test-run-01.txt
 ├── firmware/
@@ -70,241 +142,390 @@ The main objectives of the project are:
     └── note.txt
 ```
 
-The repository is organized into five main areas. The `firmware` folder contains the embedded code that runs on the ESP32-S3 for thermal sensing, signal processing, and prediction support. The `ai` folder contains the dataset and Python training script used to build the neural network model. The `hardware` folder stores the compressed KiCad project and related notes for the custom PCB.
+The `firmware` folder contains the standalone ESP32-S3 implementation. The `ai` folder contains the thermal dataset and the neural-network training script. The `ble` folder contains the first BLE communication prototype. The `docs` folder contains the technical documentation for each project stage and the experimental serial logs. The `hardware` folder contains the compressed KiCad project for the custom PCB.
 
-The `ble` folder contains an additional communication module in which a Raspberry Pi acts as a BLE server and an ESP32 acts as a BLE client. Finally, the `docs` folder stores supporting technical documentation and serial logs collected during testing.
+---
 
-## 4. System Description
+## 5. Hardware Platform
 
-The system is divided into three main parts:
+The project uses the following hardware components:
 
-### Thermal Sensing
-The MLX90614 sensor measures:
+| Component | Function |
+|---|---|
+| ESP32-S3 N16R8 | Sensor acquisition, BLE communication, and embedded processing |
+| Raspberry Pi Zero 2 W | AI inference, preprocessing, communication, and decision-making |
+| MLX90614 | Infrared measurement of object and ambient temperature |
+| Custom PCB | Integration of the ESP32-S3 and system connections |
+| USB Type-C adapter | Programming and communication interface |
 
-- object temperature
-- ambient temperature
+The MLX90614 provides two measurements:
 
-From these values, the system computes:
+```text
+Tobj = object temperature
+Tamb = ambient temperature
+```
+
+The thermal difference is calculated as:
 
 ```text
 dT = Tobj - Tamb
 ```
 
-### Embedded Processing
-The ESP32-S3 reads the sensor data, filters the thermal signal, detects the beginning of a thermal event, captures relevant thermal checkpoints, and estimates thermal behavior.
+The hardware design files are available in:
 
-### AI Prediction
-A neural network trained in Python uses thermal features from the cooling process to predict the time until the temperature difference reaches 5 °C.
+[KiCad Project Archive](hardware/esp32(Final%20version).zip)
 
 ---
 
-## 5. Hardware Description
+## 6. Standalone ESP32 Prototype
 
-The hardware is based on an ESP32-S3 and a custom PCB designed in KiCad. The system includes the ESP32-S3 module, the MLX90614 sensor interface, power and programming connections, and grounding points.
+The file `firmware/main.ino` contains the first complete embedded implementation.
 
-The hardware design files are included in:
+This firmware initializes the MLX90614 sensor, continuously reads object and ambient temperature, calculates the thermal difference, filters the signal, detects the beginning of a cooling sequence, and captures the required thermal checkpoints.
 
-- `hardware/esp32(Final version).zip`
+The main captured values are:
 
-This archive contains the KiCad project used during the development of the PCB.
+| Variable | Meaning |
+|---|---|
+| `Tobj_0` | Initial object temperature |
+| `Tamb_0` | Initial ambient temperature |
+| `dT_0` | Initial temperature difference |
+| `dT_5` | Temperature difference at 5 seconds |
+| `dT_10` | Temperature difference at 10 seconds |
+| `dT_20` | Temperature difference at 20 seconds |
+| `dT_30` | Temperature difference at 30 seconds |
 
----
+The firmware also implements a physical thermal model. A moving window of thermal-difference measurements is transformed using the natural logarithm and processed through linear regression to estimate the thermal time constant `tau`.
 
-## 6. Firmware Description
+The resulting time constant is used to estimate the remaining time until the thermal difference reaches the 5 °C target.
 
-The file `firmware/main.ino` contains the embedded firmware running on the ESP32-S3.
-
-Its main tasks are:
-
-- initialize serial and I2C communication
-- initialize the MLX90614 sensor
-- read object and ambient temperature
-- calculate the thermal difference `dT`
-- filter the thermal signal
-- detect the beginning of a measurement cycle
-- capture values at 0 s, 5 s, 10 s, 20 s, and 30 s
-- estimate thermal behavior using a physical model
-- support AI-based prediction
-- print CSV-like serial output for analysis
-
-### Firmware Operation Summary
-
-1. The ESP32-S3 initializes the sensor and communication interfaces.
-2. The system continuously reads `Tobj` and `Tamb`.
-3. The thermal difference `dT` is computed and filtered.
-4. A valid event is detected once the temperature difference exceeds a threshold for several consecutive readings.
-5. Thermal checkpoints are stored at fixed times.
-6. A physical model estimates the thermal time constant `tau`.
-7. The collected thermal checkpoints are used for AI-based prediction.
-8. The system prints structured serial logs for validation.
+The same firmware was prepared to execute a TensorFlow Lite model locally on the ESP32-S3. This version serves as proof that the complete sensing and prediction sequence can be executed directly on the microcontroller.
 
 ---
 
-## 7. AI Training Pipeline
+## 7. BLE Communication Prototype
 
-The file `ai/train_model.py` contains the Python code used to train the neural network.
-
-The script performs the following steps:
-
-1. Load the dataset from `dataset_cooling.csv`
-2. Select the input features and output target
-3. Normalize the data
-4. Shuffle the dataset
-5. Split the data into training and testing subsets
-6. Build a neural network with TensorFlow/Keras
-7. Train the model
-8. Evaluate prediction quality
-9. Print normalization parameters for embedded deployment
-10. Convert the trained model to TensorFlow Lite format when needed
-
-### Model Architecture
-
-The neural network uses:
-
-- 8 input features
-- 16 neurons in the first hidden layer
-- 8 neurons in the second hidden layer
-- 1 output neuron
-
-This architecture is used as a regression model for estimating cooling time.
-
----
-
-## 8. Model Inputs and Output
-
-The neural network uses the following 8 input variables:
-
-1. `momento_dia`
-2. `Tobj_0`
-3. `Tamb_0`
-4. `dT_0`
-5. `dT_5`
-6. `dT_10`
-7. `dT_20`
-8. `dT_30`
-
-The target output is:
-
-- `tiempo_hasta_dt5`
-
-This means the model learns to estimate the time required for the temperature difference to reach 5 °C based on the early thermal evolution of the system.
-
-The model can be interpreted as learning a function of the form:
+The repository includes a BLE communication prototype with the following files:
 
 ```text
-f(momento_dia, Tobj_0, Tamb_0, dT_0, dT_5, dT_10, dT_20, dT_30) = tiempo_hasta_dt5
+ble/raspberry/mlx_ble.py
+ble/esp32/ble_client.ino
+```
+
+In this prototype, the Raspberry Pi acts as a BLE server. It reads object and ambient temperature from the MLX90614 through I2C and publishes the measurements using a BLE characteristic.
+
+The ESP32 acts as a BLE client. It scans for a device named `raspberry_kevin`, connects to the corresponding service, subscribes to notifications, and prints each received message in the serial monitor.
+
+The prototype uses the following configuration:
+
+```text
+Service UUID:        12345678-1234-5678-1234-56789abcdef0
+Characteristic UUID: 12345678-1234-5678-1234-56789abcdef1
+BLE device name:      raspberry_kevin
+```
+
+This implementation does not represent the final role distribution, but it demonstrates that communication between both platforms works correctly.
+
+Detailed information is available in:
+
+[BLE Communication Documentation](docs/ble-raspberry-esp32.md)
+
+---
+
+## 8. Mini-Project 3
+
+Mini-Project 3 focused on implementing AI, IoT, firmware, and software around the Raspberry Pi Zero 2 W.
+
+The neural network was trained beforehand using TensorFlow/Keras. The Raspberry Pi does not need to train the model during system operation. Instead, it loads the converted TensorFlow Lite model and performs inference using the previously learned weights.
+
+The Raspberry-side inference process is expected to perform the following sequence:
+
+1. Receive object and ambient temperature measurements.
+2. Detect the beginning of a new cooling sequence.
+3. Store the initial thermal conditions.
+4. Capture the temperature difference at 5, 10, 20, and 30 seconds.
+5. Construct the eight-variable input vector.
+6. Normalize the input using the training parameters.
+7. Execute the TensorFlow Lite interpreter.
+8. Convert the normalized output back to seconds.
+9. Send the prediction to the ESP32.
+
+The TensorFlow Lite model uses an input tensor with shape `[1, 8]` and produces an output tensor with shape `[1, 1]`.
+
+---
+
+## 9. Final Project Architecture
+
+The Final Project combines the Raspberry Pi Zero 2 W and the custom ESP32-S3 board into a distributed IoT and AI system.
+
+### ESP32-S3 Responsibilities
+
+The ESP32-S3 is responsible for reading the MLX90614 through I2C, calculating the instantaneous thermal difference, transmitting the measurements through BLE, receiving the prediction, and optionally applying a control decision.
+
+The final architecture uses one BLE service and two characteristics:
+
+| BLE Element | Function | Direction |
+|---|---|---|
+| Main service | Groups the thermal prediction functions | — |
+| Temperature characteristic | Publishes `Tobj,Tamb` | ESP32 → Raspberry Pi |
+| Prediction/control characteristic | Receives prediction or commands | Raspberry Pi → ESP32 |
+
+A temperature message may use a simple format such as:
+
+```text
+36.42,24.87
+```
+
+### Raspberry Pi Responsibilities
+
+The Raspberry Pi Zero 2 W scans for the ESP32 device, establishes the BLE connection, subscribes to temperature notifications, constructs the 0–30 second temporal window, executes TensorFlow Lite inference, and sends the resulting prediction to the ESP32.
+
+### Distributed Processing
+
+The ESP32-S3 performs time-sensitive hardware operations, while the Raspberry Pi performs preprocessing, AI inference, and high-level decision-making.
+
+This architecture prepares the system for future actuator integration.
+
+---
+
+## 10. AI Model and Dataset
+
+The dataset is stored in:
+
+[Cooling Dataset](ai/dataset_cooling.csv)
+
+Each row represents one complete cooling experiment. The model receives eight variables and predicts one numerical output.
+
+| Variable | Description |
+|---|---|
+| `momento_dia` | Time-of-day category |
+| `Tobj_0` | Initial object temperature |
+| `Tamb_0` | Initial ambient temperature |
+| `dT_0` | Initial thermal difference |
+| `dT_5` | Thermal difference at 5 seconds |
+| `dT_10` | Thermal difference at 10 seconds |
+| `dT_20` | Thermal difference at 20 seconds |
+| `dT_30` | Thermal difference at 30 seconds |
+| `tiempo_hasta_dt5` | Time required to reach `dT = 5 °C` |
+
+The model learns a function of the form:
+
+```text
+f(
+  momento_dia,
+  Tobj_0,
+  Tamb_0,
+  dT_0,
+  dT_5,
+  dT_10,
+  dT_20,
+  dT_30
+) = tiempo_hasta_dt5
+```
+
+### Neural-Network Architecture
+
+```text
+Input(8)
+   ↓
+Dense(16, ReLU)
+   ↓
+Dense(8, ReLU)
+   ↓
+Dense(1, Linear)
+```
+
+The model uses the Adam optimizer, mean squared error as its loss function, and mean absolute error as an evaluation metric.
+
+Input normalization is performed using:
+
+```text
+X_norm = (X - X_mean) / X_std
+```
+
+The model output is converted back to seconds using:
+
+```text
+prediction_seconds = prediction_norm × y_std + y_mean
+```
+
+The normalization parameters used during inference must be identical to the parameters calculated during training.
+
+---
+
+## 11. End-to-End Operation
+
+The final distributed system is expected to operate as follows:
+
+1. The MLX90614 measures object and ambient temperature.
+2. The ESP32-S3 reads the sensor through I2C.
+3. The ESP32 calculates `dT = Tobj - Tamb`.
+4. The ESP32 publishes the measurements through BLE.
+5. The Raspberry Pi receives approximately one sample per second.
+6. The Raspberry detects the beginning of the cooling sequence.
+7. The variables from 0 to 30 seconds are captured.
+8. The eight model inputs are normalized.
+9. TensorFlow Lite executes the neural network.
+10. The normalized prediction is converted back to seconds.
+11. The Raspberry sends the prediction to the ESP32.
+12. The ESP32 displays the prediction or applies a control action.
+
+```text
+Sensor
+  → ESP32-S3
+  → BLE
+  → Raspberry Pi Zero 2 W
+  → TensorFlow Lite
+  → Prediction
+  → BLE
+  → ESP32-S3
+  → Monitoring or actuator
 ```
 
 ---
 
-## 9. Experimental Methodology
+## 12. Experimental Methodology
 
-The experiments were carried out indoors, in the same location, during both daytime and nighttime conditions. Airflow was not considered because the environment was relatively closed.
+The thermal experiments were performed indoors under relatively closed environmental conditions. Measurements were collected at different times of the day to represent morning, afternoon, and night conditions.
 
-Ceramic surfaces were selected because their temperature changes were slower, making them more suitable for observing thermal response over time.
+Ceramic surfaces were selected because their temperature changed more slowly than other tested materials. This provided enough time to observe the cooling process and capture the required temporal variables.
 
-The sensor was positioned above the object and pointed toward its center. However, the surrounding environment heated more than expected, causing ambient temperature to increase significantly and affecting the consistency of the measurements.
+The MLX90614 sensor was positioned above the object and aimed toward its center.
 
-For this reason, a lighter became a more practical heat source than the stove for demonstration purposes, since it produced lower and more controllable temperatures.
+During some experiments, the surrounding area heated more than expected. This caused the ambient-temperature measurement to increase significantly and reduced the consistency of the thermal data.
+
+A lighter was later used as a more controllable heat source for demonstration purposes because it produced lower and more manageable temperatures than the stove-based setup.
 
 ---
 
-## 10. Experimental Evidence
+## 13. Experimental Evidence
 
-The project includes several files that help document both the embedded thermal prediction workflow and the BLE communication stage. The thermal dataset used for model training is available in [`ai/dataset_cooling.csv`](ai/dataset_cooling.csv), while a real serial output log from the ESP32 test run is stored in [`docs/logs/test-run-01.txt`](docs/logs/test-run-01.txt).
+The repository includes the dataset, firmware, BLE prototype, serial logs, hardware files, and a demonstration video.
 
-The hardware design files are included in the compressed KiCad archive [`hardware/esp32(Final version).zip`](hardware/esp32(Final%20version).zip). In addition, a demonstration video showing the system in operation is available at the following link:
+The serial log from a complete test run is available at:
 
-[Watch the demo video](https://drive.google.com/file/d/1Ku_SDlaufHtSQT0y7ulRh_jtI_WYhIBA/view?usp=sharing)
+[Test Run Log](docs/logs/test-run-01.txt)
 
+The hardware design is available at:
 
-## 11. Additional Module: BLE Communication Between Raspberry Pi and ESP32
+[KiCad Project Archive](hardware/esp32(Final%20version).zip)
 
-This repository also includes an additional Bluetooth Low Energy communication module that complements the thermal monitoring work. In this stage, the Raspberry Pi is connected to the MLX90614 sensor and acts as a BLE server. It reads the ambient and object temperature through I2C, formats the information as text, and continuously transmits it through a BLE characteristic.
+The project demonstration video is available at:
 
-The ESP32 acts as a BLE client. It scans nearby BLE devices, searches for the Raspberry Pi server, connects to it, subscribes to BLE notifications, and prints the received temperature values in the serial monitor. This creates a simple real-time wireless link between sensing on the Raspberry Pi side and monitoring on the ESP32 side.
+[Watch the Demo Video](https://drive.google.com/file/d/1Ku_SDlaufHtSQT0y7ulRh_jtI_WYhIBA/view?usp=sharing)
 
-The transmitted data uses a compact format such as `OBJ:26.15,AMB:24.80`, where `OBJ` represents the object temperature and `AMB` represents the ambient temperature. This approach makes the communication easy to inspect, debug, and extend.
+---
 
-The code for this module is available in `ble/raspberry/mlx_ble.py` and `ble/esp32/ble_client.ino`. A more detailed technical explanation is included in [`docs/ble-raspberry-esp32.md`](docs/ble-raspberry-esp32.md).
+## 14. Current Project Status
 
-## 12. Hardware Issues and Recommendations
+| Component | Status | Result |
+|---|---|---|
+| MLX90614 sensor acquisition | Completed | Object and ambient temperatures acquired |
+| Standalone ESP32 firmware | Completed | Thermal processing and prediction prototype |
+| Custom ESP32-S3 PCB | Manufactured and tested | Functional with identified hardware issues |
+| Thermal dataset | Available | Training variables and target defined |
+| TensorFlow/Keras training | Completed | Regression model trained |
+| TensorFlow Lite conversion | Completed | Model prepared for deployment |
+| Initial BLE prototype | Completed | Raspberry-to-ESP32 notifications verified |
+| TensorFlow Lite loading on Raspberry Pi | Verified | Input and output tensors recognized |
+| Final bidirectional BLE architecture | In development | ESP32 server and Raspberry client must be fully integrated |
+| Prediction returned to ESP32 | In development | Control characteristic must be completed |
+| Actuator response | Planned | Final control action must be defined |
 
-During the hardware implementation, some practical issues were identified.
+---
+
+## 15. Hardware Issues and Recommendations
 
 ### USB Type-C Adapter
-A female header was used so that the Type-C adapter could be removed if the PCB failed. However, this connection became part of the problem and negatively affected system operation.
 
-**Recommendation:** solder the Type-C adapter directly to the PCB in future revisions.
+A female header was originally used to make the USB Type-C adapter removable. This decision was intended to simplify replacement if the PCB failed. However, the removable connection introduced electrical and mechanical problems.
+
+For future PCB revisions, the Type-C adapter should be soldered directly to the board.
 
 ### ESP32-S3 Antenna Area
-The antenna area of the ESP32-S3 N16R8 module was left floating in the final design.
 
-**Recommendation:** provide better mechanical support for the antenna region in future PCB versions.
+The antenna area of the ESP32-S3 N16R8 module did not receive sufficient mechanical support in the final PCB design.
+
+Future versions should improve the board structure around the antenna region while respecting the antenna keep-out requirements.
 
 ### Grounding
-Additional holes were created for ground connections, and male-to-male headers were used to connect the upper layer to ground.
+
+Additional holes were created to establish ground connections between PCB layers. Male-to-male headers were used as a practical solution for connecting the upper layer to ground.
+
+Future revisions should use properly designed plated vias and ground stitching instead of external header connections.
 
 ---
 
-## 13. Limitations
+## 16. Limitations
 
-The project worked as a proof of concept, but several limitations were observed:
+The experimental dataset was collected in a limited indoor environment. Airflow, environmental variation, sensor distance, heat-source consistency, and surface characteristics were not fully controlled.
 
-- ambient temperature increased during measurement
-- the dataset was collected in a limited environment
-- thermal disturbances affected the measurements
-- AI predictions were not always fully consistent with the expected physical behavior
+The increase in ambient temperature during some experiments affected the measured thermal difference. As a result, some AI predictions were not fully consistent with the expected physical cooling behavior.
 
-As a result, the system is functional, but the prediction quality depends strongly on the measurement conditions and on the quality of the collected dataset.
+The initial BLE prototype also uses different client and server roles from the target final architecture. Although it validates communication, additional development is required to complete the final bidirectional system.
 
 ---
 
-## 14. How to Reproduce the Project
+## 17. How to Reproduce the Project
 
-### Hardware
-1. Extract `hardware/esp32(Final version).zip`
-2. Review the KiCad files
-3. Manufacture and assemble the PCB
+### AI Training
 
-### Firmware
-1. Open `firmware/main.ino` in Arduino IDE
-2. Install the required ESP32 and MLX90614 libraries
-3. Select the correct board and serial port
-4. Upload the firmware to the ESP32-S3
-5. Open the serial monitor
+Install the required Python packages:
 
-### AI
-1. Open `ai/train_model.py`
-2. Make sure `dataset_cooling.csv` is available
-3. Install Python dependencies:
-   - numpy
-   - pandas
-   - tensorflow
-   - matplotlib
-4. Run the script
-5. Review the training results and exported model data
+```bash
+pip install numpy pandas tensorflow matplotlib
+```
+
+Place `dataset_cooling.csv` in the same working directory as `train_model.py`, then execute:
+
+```bash
+python train_model.py
+```
+
+The script loads the dataset, normalizes the variables, trains the neural network, evaluates the predictions, and prepares the model for TensorFlow Lite conversion.
+
+### Standalone ESP32 Firmware
+
+Open `firmware/main.ino` in Arduino IDE. Install the ESP32 board support, the Adafruit MLX90614 library, and the required TensorFlow Lite Micro library.
+
+Select the correct ESP32-S3 board and serial port, upload the firmware, and open the serial monitor at 115200 baud.
+
+### BLE Prototype
+
+Run the Raspberry Pi BLE server:
+
+```bash
+python3 mlx_ble.py
+```
+
+Upload `ble_client.ino` to the ESP32 and open the serial monitor. The ESP32 should detect `raspberry_kevin`, connect to the BLE service, subscribe to notifications, and print the received temperature values.
+
+### Final Architecture
+
+The final architecture requires an ESP32 GATT server that publishes temperature measurements and a Raspberry Pi GATT client that performs TensorFlow Lite inference and writes the prediction back to the ESP32.
+
+These final software components are still part of the ongoing integration stage.
 
 ---
 
-## 15. Future Work
+## 18. Future Work
 
-Possible improvements for future versions of the project include:
+Future development should focus on completing the final bidirectional BLE architecture, integrating the temporal feature capture with Raspberry Pi inference, sending the prediction back to the ESP32, and defining an actuator response.
 
-- revising the PCB design
-- improving the USB Type-C connection
-- improving antenna support
-- collecting cleaner thermal data
-- expanding the dataset
-- refining the AI model
-- generating and including the final embedded deployment files
+The PCB should also be revised to improve the USB Type-C connection, antenna support, grounding, and layer interconnection.
+
+Additional thermal experiments should be performed under better-controlled conditions. The dataset should include more materials, environmental conditions, starting temperatures, and repeated measurements.
+
+The AI model should then be retrained and evaluated using quantitative error metrics and comparisons against the physical thermal model.
 
 ---
 
-## 16. Conclusions
+## 19. Conclusions
 
-This project successfully integrated custom PCB design, embedded firmware, thermal sensing, AI model training, and experimental validation around an ESP32-S3 platform.
+This project demonstrates the progressive development of an embedded AI and IoT thermal prediction system.
 
-From the hardware perspective, the project provided useful lessons about connector integration, grounding, and PCB design details. From the software perspective, it demonstrated a complete workflow for reading thermal data, processing it in real time, and training an AI-based thermal prediction model.
+The standalone ESP32 prototype validated sensor acquisition, thermal processing, physical-model estimation, and embedded inference. The first BLE prototype validated real-time wireless communication between the Raspberry Pi and the ESP32. Mini-Project 3 verified the AI and IoT processing workflow on the Raspberry Pi Zero 2 W.
 
-Although the experimental setup introduced disturbances that affected prediction quality, the project remains a solid proof of concept and a practical guide for building a similar embedded AI system.
+The Final Project extends these results into a distributed architecture in which the custom ESP32-S3 PCB performs real-time sensing and BLE communication while the Raspberry Pi executes TensorFlow Lite inference and decision-making.
+
+Although the final bidirectional integration is still under development, the project already demonstrates the essential components required for a complete intelligent thermal monitoring and control system.
