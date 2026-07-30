@@ -1,178 +1,263 @@
 # Final Project: Distributed ESP32-S3 and Raspberry Pi Thermal Prediction System
 
-## Overview
+## 1. Overview
 
-The Final Project integrates a custom ESP32-S3 board, a Raspberry Pi Zero 2 W, an MLX90614 infrared temperature sensor, Bluetooth Low Energy, and TensorFlow Lite into a distributed intelligent thermal prediction system.
+The Final Project combines the custom ESP32-S3 PCB, the MLX90614 infrared sensor, a Raspberry Pi Zero 2 W, Bluetooth Low Energy, and TensorFlow Lite.
 
-The system is designed to observe the cooling behavior of an object and estimate the time required for the temperature difference between the object and the environment to reach 5 °C.
+The ESP32-S3 is responsible for direct hardware interaction and real-time temperature publication. The Raspberry Pi is responsible for temporal feature capture, normalization, neural-network inference, and prediction return.
 
-The final architecture separates real-time hardware functions from AI processing:
-
-| Device | Main responsibility |
-|---|---|
-| ESP32-S3 | Sensor acquisition, BLE server, and actuator interface |
-| Raspberry Pi Zero 2 W | BLE client, preprocessing, inference, and decision-making |
-| MLX90614 | Object and ambient temperature measurement |
-| TensorFlow Lite model | Cooling-time prediction |
-| BLE | Bidirectional wireless communication |
-
----
-
-## Final Objective
-
-The objective is to combine the custom ESP32-S3 PCB with the Raspberry Pi Zero 2 W to create a complete IoT and AI solution.
-
-The ESP32-S3 acquires the thermal measurements and transmits them wirelessly. The Raspberry Pi receives the data, constructs the neural-network inputs, executes the TensorFlow Lite model, and returns the predicted cooling time.
-
-The ESP32 can then display the result or use it as an input for a future control action.
-
----
-
-## Final System Architecture
-
-The final data path is:
+The final architecture is:
 
 ```text
 MLX90614
-    ↓
-ESP32-S3
-    ↓ BLE temperature notification
-Raspberry Pi Zero 2 W
-    ↓
-Input capture and normalization
-    ↓
+    ↓ I2C
+ESP32-S3 BLE server
+    ↓ temperature notifications
+Raspberry Pi BLE client
+    ↓ 0–30 s feature capture
 TensorFlow Lite inference
+    ↓ remaining-time prediction
+ESP32-S3 control characteristic
     ↓
-Cooling-time prediction
-    ↓ BLE prediction/control message
-ESP32-S3
-    ↓
-Monitoring or actuator
+Display, LED, alarm, or future actuator
 ```
 
-This architecture distributes the work between the two processing devices.
-
-The ESP32-S3 handles time-sensitive acquisition and hardware interaction. The Raspberry Pi performs the more computationally demanding tasks associated with preprocessing, AI inference, and decision-making.
-
----
-
-## ESP32-S3 Responsibilities
-
-The ESP32-S3 is responsible for interacting directly with the MLX90614 sensor and exposing the data through Bluetooth Low Energy.
-
-Its main functions are:
-
-1. Initialize the I2C interface.
-2. Read the object temperature.
-3. Read the ambient temperature.
-4. Calculate the instantaneous temperature difference.
-5. Publish the temperature data through a BLE characteristic.
-6. Receive the prediction through a second BLE characteristic.
-7. Display the result or use it for future actuator control.
-
-The temperature difference is calculated as:
+The code should be stored as:
 
 ```text
-dT = Tobj - Tamb
+ble/esp32/esp32_ble_server_final.ino
+ble/raspberry/raspberry_ai_client_final.py
 ```
+
+The repository does not currently include `arduino_model.tflite`. The Raspberry Pi code is documented, but inference cannot run until a compatible model is generated.
 
 ---
 
-## MLX90614 Connection
+## 2. Final ESP32 Code
 
-The project presentation defines the following I2C pin configuration:
+### 2.1 Included libraries
 
-| Signal | ESP32-S3 pin |
-|---|---:|
-| SDA | GPIO 47 |
-| SCL | GPIO 48 |
+```cpp
+#include <Wire.h>
+#include <Adafruit_MLX90614.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+```
 
-The ESP32 obtains approximately one new temperature measurement per second.
+`Wire` controls I2C. `Adafruit_MLX90614` reads the thermal sensor. The BLE libraries create a GATT server, service, characteristics, advertising, notifications, and write callbacks.
 
-The transmitted packet contains the object temperature and ambient temperature separated by a comma:
+### 2.2 Pin definitions
+
+```cpp
+#define SDA_PIN 47
+#define SCL_PIN 48
+#define LED_PIN 45
+```
+
+GPIO 47 and GPIO 48 are used for the sensor I2C bus. GPIO 45 is configured as a digital output for the LED or demonstration control signal.
+
+These pin numbers must match the PCB routing. Changing the code without checking the PCB can disconnect the software configuration from the actual hardware.
+
+### 2.3 BLE objects
+
+```cpp
+BLECharacteristic *tempCharacteristic;
+BLECharacteristic *controlCharacteristic;
+```
+
+`tempCharacteristic` sends temperatures from the ESP32 to the Raspberry Pi. `controlCharacteristic` receives a command or prediction from the Raspberry Pi.
+
+### 2.4 Service and characteristic UUIDs
 
 ```text
-36.42,24.87
+Service UUID: 12345678-1234-5678-1234-56789abcdef0
+Temperature:  12345678-1234-5678-1234-56789abcdef1
+Control:      12345678-1234-5678-1234-56789abcdef2
 ```
 
-The first value corresponds to `Tobj`, and the second value corresponds to `Tamb`.
+These values must be identical in the Raspberry Pi program. A one-character difference prevents the client from finding the intended service or characteristic.
 
----
+### 2.5 Control callback
 
-## Raspberry Pi Responsibilities
+```cpp
+class ControlCallbacks : public BLECharacteristicCallbacks
+```
 
-The Raspberry Pi Zero 2 W acts as the BLE client and AI processing unit.
+The callback runs every time the Raspberry Pi writes to the control characteristic. The code obtains the received value and prints it.
 
-Its responsibilities are:
+The current implementation checks for:
 
-1. Scan for the ESP32 BLE device.
-2. Connect to the main thermal prediction service.
-3. Subscribe to temperature notifications.
-4. Receive approximately one `Tobj,Tamb` pair per second.
-5. Convert the received text into floating-point values.
-6. Detect the beginning of a cooling sequence.
-7. Capture the 0–30 second temporal window.
-8. Normalize the eight input variables.
-9. Execute TensorFlow Lite inference.
-10. Convert the normalized prediction back to seconds.
-11. Send the prediction to the ESP32.
-12. Support future high-level control decisions.
+```text
+LED_ON
+LED_OFF
+```
 
----
+and changes GPIO 45 accordingly.
 
-## BLE Architecture
+This does not yet match the final Raspberry program. The Raspberry sends the remaining time as a number such as `481.68`. Therefore, the BLE write succeeds and the ESP32 prints the number, but neither `if` condition becomes true.
 
-The ESP32-S3 works as a GATT server, while the Raspberry Pi Zero 2 W works as a GATT client.
+Two valid control strategies are possible:
 
-| Device | BLE role | Operation |
-|---|---|---|
-| ESP32-S3 | GATT server | Publishes characteristics and sends notifications |
-| Raspberry Pi Zero 2 W | GATT client | Connects, subscribes, receives data, and writes predictions |
+**Numeric protocol:** the Raspberry sends seconds, and the ESP32 converts the text with `value.toFloat()`. The ESP32 decides when to activate the LED or actuator.
 
-The target ESP32 device name is:
+**Command protocol:** the Raspberry evaluates the threshold and sends `LED_ON` or `LED_OFF` instead of the number.
+
+The project must select one protocol and use it consistently on both devices.
+
+### 2.6 Setup sequence
+
+The code starts serial communication at 115200 baud, configures the LED output, and initializes I2C with the PCB pins.
+
+```cpp
+Wire.begin(SDA_PIN, SCL_PIN);
+```
+
+`mlx.begin()` verifies that the sensor responds. If it fails, the program enters an infinite loop because no valid measurements can be produced.
+
+The BLE device is initialized with the name:
 
 ```text
 ESP32_SENSOR
 ```
 
-The BLE connection uses one main service and two characteristics.
+The Raspberry Pi searches for this exact advertised name.
 
-| BLE element | Identifier | Function | Direction |
-|---|---|---|---|
-| Main service | `...abcdef0` | Groups the system characteristics | — |
-| Temperature characteristic | `...abcdef1` | Sends `Tobj,Tamb` | ESP32 → Raspberry Pi |
-| Prediction/control characteristic | `...abcdef2` | Receives prediction or command | Raspberry Pi → ESP32 |
+The server creates one service and two characteristics. The temperature characteristic supports read and notify. The control characteristic supports write and is connected to `ControlCallbacks`.
 
-The complete UUID values should remain identical in the ESP32 and Raspberry Pi programs.
+After the service starts, advertising begins and the ESP32 becomes discoverable.
 
----
+### 2.7 Main loop
 
-## BLE Communication Sequence
+Each second, the ESP32 reads:
 
-The Raspberry Pi follows this connection process:
-
-1. Starts scanning nearby BLE devices.
-2. Searches for `ESP32_SENSOR`.
-3. Connects to the configured service.
-4. Locates the temperature characteristic.
-5. Locates the prediction/control characteristic.
-6. Subscribes to temperature notifications.
-7. Receives a new temperature pair approximately every second.
-8. Executes the prediction after collecting the required data.
-9. Writes the result to the prediction/control characteristic.
-
-This creates bidirectional communication:
-
-```text
-ESP32 → temperature measurements → Raspberry Pi
-ESP32 ← prediction or control value ← Raspberry Pi
+```cpp
+float obj = mlx.readObjectTempC();
+float amb = mlx.readAmbientTempC();
 ```
 
+It creates a comma-separated packet:
+
+```text
+36.42,24.87
+```
+
+The first value is object temperature and the second is ambient temperature. The packet is printed locally, written to `tempCharacteristic`, and transmitted with `notify()`.
+
+The code currently notifies every second regardless of whether a client is connected. A more robust version can track connection state and only notify subscribed clients.
+
 ---
 
-## AI Model Input Construction
+## 3. Final Raspberry Pi Code
 
-The Raspberry Pi must build the following eight-value input vector:
+The final Raspberry program begins with:
+
+```python
+import asyncio
+import time
+from pathlib import Path
+
+import numpy as np
+import tensorflow as tf
+from bleak import BleakClient, BleakScanner
+```
+
+`asyncio` allows BLE scanning, notification reception, queue processing, and reconnection without blocking the whole program. `time.monotonic()` measures elapsed time safely. `Path` locates the model relative to the script. `NumPy` prepares the model input. TensorFlow loads the Lite interpreter. Bleak provides the BLE client.
+
+### 3.1 BLE configuration
+
+```python
+DEVICE_NAME = "ESP32_SENSOR"
+```
+
+The service and characteristic UUIDs match the ESP32 final code. `TEMP_UUID` is used for notifications and `CONTROL_UUID` is used for returning the prediction.
+
+### 3.2 Experiment configuration
+
+```python
+MOMENTO_DIA = 2
+START_DT = 3.0
+START_CONFIRM_SAMPLES = 3
+STOP_DT = 2.0
+ALPHA_DT = 0.2
+```
+
+`MOMENTO_DIA` is one of the neural-network inputs and must be changed manually for morning, afternoon, or night.
+
+A run begins only after the filtered thermal difference exceeds 3 °C for three consecutive measurements. This avoids starting from a single noisy sample.
+
+After a prediction, the system waits until `dT` falls to 2 °C before allowing another run. This hysteresis separates the start and reset conditions.
+
+`ALPHA_DT = 0.2` applies the same exponential filtering concept used in the standalone ESP32 code.
+
+### 3.3 Normalization constants
+
+The code contains `X_MEAN`, `X_STD`, `Y_MEAN`, and `Y_STD`. These constants describe the dataset used to train the loaded model.
+
+The values currently written in the final Raspberry code do not match the statistics of the 42-sample CSV currently stored in the repository. Therefore, they must not be mixed with a newly trained model from the current dataset.
+
+The correct deployment procedure is:
+
+```text
+1. Train the model from the selected CSV.
+2. Save the generated arduino_model.tflite.
+3. Copy the printed means and standard deviations.
+4. Update the Raspberry constants.
+5. Place the model beside the Raspberry script.
+6. Validate the complete system.
+```
+
+### 3.4 `CapturaEnfriamiento` state machine
+
+The class manages the temporal experiment. It has three states:
+
+```text
+esperando  → waiting for a valid start
+capturando → collecting the 0–30 second features
+predicho   → prediction already produced; waiting for reset
+```
+
+`reiniciar_corrida()` clears the timestamps and captured values but intentionally preserves the filter object state through the class structure. If a completely independent run is required, `dT_filtrado` can also be reset.
+
+### 3.5 Filter update
+
+```python
+self.dT_filtrado = (
+    ALPHA_DT * dT_raw
+    + (1.0 - ALPHA_DT) * self.dT_filtrado
+)
+```
+
+This is an exponential moving average. The newest sample contributes 20%, and the previous filtered value contributes 80%.
+
+### 3.6 Start detection
+
+In the `esperando` state, the code counts consecutive samples above `START_DT`. When the count reaches three, it stores:
+
+```text
+Tobj_0
+Tamb_0
+dT_0
+```
+
+and records the start time using `time.monotonic()`.
+
+### 3.7 Temporal sample capture
+
+The code checks the elapsed time and captures each checkpoint only once:
+
+```text
+dT_5  at or after 5 seconds
+dT_10 at or after 10 seconds
+dT_20 at or after 20 seconds
+dT_30 at or after 30 seconds
+```
+
+Because notifications arrive approximately once per second, the actual capture may occur slightly after the exact timestamp. The code records the first available sample after each threshold.
+
+### 3.8 Input-vector construction
+
+When all values are available, the code builds:
 
 ```text
 [
@@ -187,182 +272,171 @@ The Raspberry Pi must build the following eight-value input vector:
 ]
 ```
 
-The temporal capture process begins when the system detects a new cooling event.
+The returned tuple also includes the real elapsed time, which is required to calculate the remaining time after inference.
 
-At the initial instant, the Raspberry stores:
+### 3.9 Model loading
 
-```text
-Tobj_0
-Tamb_0
-dT_0
-```
-
-It then waits and records:
+`cargar_modelo()` searches for:
 
 ```text
-dT_5
-dT_10
-dT_20
-dT_30
+arduino_model.tflite
 ```
 
-Once the complete vector is available, the Raspberry normalizes the data and executes the TensorFlow Lite model.
+in the same folder as the Python script. If the file does not exist, a `FileNotFoundError` is raised with the expected path.
 
----
-
-## TensorFlow Lite Inference
-
-The neural network was trained previously using TensorFlow/Keras and converted to TensorFlow Lite.
-
-The Raspberry Pi does not modify or retrain the model during operation. It only performs inference.
-
-The model architecture is:
-
-```text
-Input(8)
-   ↓
-Dense(16, ReLU)
-   ↓
-Dense(8, ReLU)
-   ↓
-Dense(1, Linear)
-```
-
-The input normalization is:
-
-```text
-X_norm = (X - X_mean) / X_std
-```
-
-The output is converted back to seconds using:
-
-```text
-prediction_seconds = prediction_norm × y_std + y_mean
-```
-
-The TensorFlow Lite interpreter recognizes:
+The interpreter allocates the tensors and prints the input and output shapes. The expected shapes are:
 
 ```text
 Input:  [1, 8]
 Output: [1, 1]
 ```
 
----
+The repository currently does not contain this model file. Its absence is intentional in the documentation, but it means that the final program cannot yet run inference from a fresh clone.
 
-## End-to-End Operation
+### 3.10 Model execution
 
-The complete system operation is:
+`ejecutar_modelo()` normalizes the eight values, adds a batch dimension with `np.expand_dims`, places the array in the input tensor, invokes the interpreter, and reads the normalized output.
 
-| Step | Process |
-|---:|---|
-| 1 | The MLX90614 measures `Tobj` and `Tamb` |
-| 2 | The ESP32-S3 reads the sensor through I2C |
-| 3 | The ESP32 publishes the measurements through BLE |
-| 4 | The Raspberry Pi receives the samples |
-| 5 | The Raspberry constructs the 0–30 second temporal window |
-| 6 | The eight model inputs are normalized |
-| 7 | TensorFlow Lite generates the prediction |
-| 8 | The prediction is converted back to seconds |
-| 9 | The Raspberry sends the result to the ESP32 |
-| 10 | The ESP32 displays the result or applies a control action |
-
----
-
-## Custom PCB Integration
-
-The Final Project uses the custom PCB developed for the ESP32-S3 system.
-
-The PCB project is available in:
-
-[KiCad Project Archive](../hardware/esp32(Final%20version).zip)
-
-The board integrates the ESP32-S3 and the connections required for sensor acquisition, power, programming, grounding, and future control interfaces.
-
-Several practical issues were identified during assembly.
-
-The removable USB Type-C adapter created connection problems. A future revision should solder the adapter directly to the PCB.
-
-The ESP32-S3 antenna area also requires improved mechanical and layout treatment. The design should respect the antenna keep-out region while providing appropriate board support.
-
-Ground connections between layers were implemented using additional holes and external headers. Future versions should use properly designed plated vias and ground stitching.
-
----
-
-## Current Project Status
-
-| Component | Status | Result |
-|---|---|---|
-| MLX90614 and ESP32 acquisition | Working | Temperature readings obtained through I2C |
-| BLE communication | Working | Notifications and characteristic writes verified |
-| Thermal dataset | Available | Temporal variables and target defined |
-| TensorFlow/Keras training | Completed | Regression model trained |
-| TensorFlow Lite conversion | Completed | Model prepared for Raspberry Pi execution |
-| Raspberry Pi inference | Verified | Model loads and tensor shapes are correct |
-| Custom ESP32-S3 PCB | Manufactured | Tested with identified hardware issues |
-| Final integration | In development | Acquisition, temporal window, and inference must be combined |
-| Prediction return to ESP32 | Part of final integration | Control characteristic must be completed |
-| Actuator response | Planned | Final control logic must be defined |
-
-The verified components demonstrate that the work can be distributed between the ESP32 and Raspberry Pi. However, the full continuous application still requires final integration.
-
----
-
-## Relationship with the BLE Prototype
-
-The repository also contains an earlier BLE prototype in which the Raspberry Pi acts as the BLE server and the ESP32 acts as the client.
-
-That prototype was used to verify BLE discovery, connection, subscription, and temperature transmission.
-
-The Final Project uses the opposite role distribution:
+The total predicted time is calculated as:
 
 ```text
-Initial BLE prototype:
-Raspberry Pi = server
-ESP32 = client
-
-Final architecture:
-ESP32-S3 = server
-Raspberry Pi Zero 2 W = client
+total_time = normalized_prediction × Y_STD + Y_MEAN
 ```
 
-The initial prototype should therefore be interpreted as communication validation rather than the final implementation.
+### 3.11 ESP32 discovery
 
-More information is available in:
+`buscar_esp32()` repeatedly performs five-second scans. It prints each discovered name and address and returns only when a device named `ESP32_SENSOR` is found.
 
-[Initial BLE Prototype Documentation](ble-raspberry-esp32.md)
+If the device is not found, the function waits two seconds and scans again.
+
+### 3.12 Notification queue
+
+The BLE notification callback should remain short. It copies the received bytes and places them in an `asyncio.Queue` using `loop.call_soon_threadsafe()`.
+
+A separate coroutine performs decoding, parsing, feature capture, inference, and BLE writing. This prevents expensive processing from blocking the BLE callback.
+
+### 3.13 Packet parsing
+
+The program expects exactly two comma-separated values:
+
+```text
+Tobj,Tamb
+```
+
+If the packet contains a different number of fields, it is rejected. The values are converted to floats and sent to the capture state machine.
+
+### 3.14 Total and remaining time
+
+The model predicts the total time from the beginning of the run until `dT = 5 °C`. Since inference occurs after approximately 30 seconds, the code calculates:
+
+```text
+remaining_time = max(total_time - elapsed_time, 0)
+```
+
+This prevents a negative displayed result if the predicted total time is already less than the elapsed time.
+
+### 3.15 Prediction return
+
+The remaining time is encoded as UTF-8 text and written to `CONTROL_UUID` with a response request.
+
+Example:
+
+```text
+481.68
+```
+
+As described earlier, the ESP32 callback must be modified if this numeric protocol is retained.
+
+### 3.16 Connection and reconnection
+
+`conectar()` creates the client, subscribes to notifications, starts the processing coroutine, and remains active while the BLE link exists.
+
+If the link is lost, the context manager closes the connection, the processing task is cancelled, and the outer `main()` loop begins scanning again after error handling.
 
 ---
 
-## Expected Final Result
+## 4. Required File Placement
 
-The expected final system should operate continuously without manual intervention.
+The recommended current structure is:
 
-The ESP32-S3 should publish thermal measurements, the Raspberry Pi should collect the required time window and calculate the prediction, and the ESP32 should receive the estimated remaining time.
+```text
+ble/
+├── esp32/
+│   ├── ble_client.ino
+│   └── esp32_ble_server_final.ino
+└── raspberry/
+    ├── mlx_ble.py
+    └── raspberry_ai_client_final.py
+```
 
-The resulting prediction can later be used to:
+When generated, the model must be placed here:
 
-- display a cooling-time estimate;
-- activate a visual or audible notification;
-- control an actuator;
-- stop or modify a thermal process;
-- report the system state to another IoT platform.
+```text
+ble/raspberry/arduino_model.tflite
+```
+
+The model is not listed in the current repository structure because the user has not generated or committed it yet.
 
 ---
 
-## Pending Tasks
+## 5. Installation Without `requirements.txt`
 
-The remaining integration work includes combining BLE acquisition with temporal feature capture, executing inference automatically after 30 seconds, writing the prediction to the ESP32 control characteristic, and validating the complete cycle using real measurements.
+The packages can be installed directly:
 
-The prediction error should also be quantified by comparing the TensorFlow Lite output with the real measured time required to reach `dT = 5 °C`.
+```bash
+pip install numpy tensorflow bleak
+```
+
+Then execute:
+
+```bash
+python ble/raspberry/raspberry_ai_client_final.py
+```
+
+The ESP32 code requires the ESP32 Arduino board package and the Adafruit MLX90614 library.
 
 ---
 
-## Conclusions
+## 6. Current Integration Problems
 
-The Final Project proposes a distributed architecture that combines the real-time acquisition capability of the ESP32-S3 with the processing capability of the Raspberry Pi Zero 2 W.
+### Missing TensorFlow Lite model
 
-Bluetooth Low Energy provides bidirectional wireless communication between both platforms. TensorFlow Lite allows the trained neural network to run on the Raspberry Pi without retraining.
+The final Raspberry script expects `arduino_model.tflite`, but the file is not currently in the repository. The training script must generate it before inference can run.
 
-The project has already verified sensor acquisition, BLE communication, dataset preparation, model training, TensorFlow Lite conversion, and model loading on the Raspberry Pi.
+### Model-version mismatch
 
-The final integration remains under development. The next stage is to validate continuous real-time prediction, send the result back to the ESP32, and quantify the prediction error against experimental measurements.
+The normalization constants in the Raspberry script belong to a different dataset version than the current 42-sample CSV. The model and constants must be regenerated together.
+
+### Control-message mismatch
+
+The Raspberry writes a numeric remaining time, but the ESP32 only performs LED actions for `LED_ON` and `LED_OFF`. The protocol must be unified.
+
+### Experimental uncertainty
+
+The prediction quality depends on data collected under changing ambient conditions. Integration success does not by itself prove model accuracy.
+
+---
+
+## 7. Evidence
+
+### PCB layout
+
+![PCB layout](images/PCB%20design.jpeg)
+
+### Final prototype
+
+![Final prototype](images/Prototipo.jpeg)
+
+### Local demonstration video
+
+[Watch the repository video](videos/Dise%C3%B1o%20final.mp4)
+
+### External demonstration video
+
+[Watch the external demo](https://drive.google.com/file/d/1Ku_SDlaufHtSQT0y7ulRh_jtI_WYhIBA/view?usp=sharing)
+
+---
+
+## 8. Conclusion
+
+The final code implements the intended distributed architecture at the software level. The ESP32-S3 publishes sensor data and exposes a return channel. The Raspberry Pi manages the temporal experiment, prepares the neural-network input, executes TensorFlow Lite inference, and returns the result.
