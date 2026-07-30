@@ -1,283 +1,354 @@
-# Mini-Project 3: AI, IoT, Firmware, and Software on Raspberry Pi Zero 2 W
+# Mini-Project 3: AI, IoT, Firmware, and Software
 
-## Overview
+## 1. Scope
 
-Mini-Project 3 focuses on the implementation of artificial intelligence, IoT communication, firmware, and software using a Raspberry Pi Zero 2 W as the main processing platform.
+Mini-Project 3 develops the artificial-intelligence and IoT foundation of the thermal prediction system. Its purpose is to transform experimental cooling measurements into a regression model and prepare that model for execution on embedded or edge-computing hardware.
 
-The purpose of this stage is to prepare and verify the software components required for an intelligent thermal prediction system. The system observes the cooling behavior of an object and estimates the time required for the difference between the object temperature and the ambient temperature to reach 5 °C.
-
-The artificial intelligence model is trained previously using TensorFlow/Keras. The Raspberry Pi does not train the model during normal system operation. Instead, it loads the converted TensorFlow Lite model and performs inference using the weights learned during training.
-
----
-
-## Project Objective
-
-The objective of Mini-Project 3 is to develop a processing pipeline capable of receiving thermal measurements, constructing the required input variables, executing a neural-network model, and producing a cooling-time prediction.
-
-The software pipeline follows this general sequence:
+The main software elements are:
 
 ```text
-Temperature measurements
-        ↓
-Input feature extraction
-        ↓
-Normalization
-        ↓
-TensorFlow Lite inference
-        ↓
-Output denormalization
-        ↓
-Estimated time until dT = 5 °C
+ai/dataset_enfriamiento.csv
+ai/train_model.py
+firmware/main.ino
 ```
 
-The Raspberry Pi Zero 2 W is intended to perform data reception, preprocessing, inference, and prediction transmission.
+The current repository also contains `ai/dataset_cooling.csv`. The available copies contain the same 42 experiments. Since the training script reads `dataset_enfriamiento.csv`, that file should be considered the active dataset and the duplicate can be removed or renamed as a legacy copy.
 
 ---
 
-## Main Technologies
+## 2. Thermal Prediction Problem
 
-| Technology | Function |
-|---|---|
-| Raspberry Pi Zero 2 W | Data processing and AI inference |
-| Python | Training and inference software |
-| TensorFlow/Keras | Neural-network training |
-| TensorFlow Lite | Execution of the trained model |
-| Bluetooth Low Energy | Wireless communication |
-| ESP32-S3 | Thermal data acquisition and communication |
-| MLX90614 | Object and ambient temperature measurement |
-
----
-
-## Thermal Prediction Problem
-
-The MLX90614 provides two temperature measurements:
+The MLX90614 provides the object temperature and the ambient temperature:
 
 ```text
 Tobj = object temperature
 Tamb = ambient temperature
 ```
 
-The temperature difference is calculated as:
+The code calculates the thermal difference:
 
 ```text
 dT = Tobj - Tamb
 ```
 
-The model must estimate how long the object will take to reach:
-
-```text
-dT = 5 °C
-```
-
-The predicted variable is called:
+The prediction target is the total time required for that difference to reach 5 °C:
 
 ```text
 tiempo_hasta_dt5
 ```
 
----
-
-## Dataset
-
-The model was trained using data collected from cooling experiments. Each dataset row represents one complete cooling run and contains the initial thermal conditions, the evolution of the temperature difference, and the final cooling time.
-
-According to the project presentation, the dataset version used during that stage contained 22 samples. The dataset currently stored in the repository should be considered the authoritative version if it has been updated since the presentation.
-
-The dataset is available at:
-
-[Cooling Dataset](../ai/dataset_cooling.csv)
+The model uses the early evolution of the cooling curve to estimate the later total cooling time.
 
 ---
 
-## Model Variables
+## 3. Dataset
 
-The neural network uses eight input variables and produces one numerical output.
+The current `dataset_enfriamiento.csv` contains 42 complete cooling experiments and 9 columns. The three time-of-day classes are balanced:
 
-| Variable | Description |
+| Time category | Encoded value | Samples |
+|---|---:|---:|
+| Morning | 0 | 14 |
+| Afternoon | 1 | 14 |
+| Night | 2 | 14 |
+
+Each row represents one complete run.
+
+| Column | Meaning |
 |---|---|
-| `momento_dia` | Time-of-day category: 0 = morning, 1 = afternoon, 2 = night |
-| `Tobj_0` | Object temperature at the beginning of the cooling sequence |
-| `Tamb_0` | Ambient temperature at the beginning of the cooling sequence |
-| `dT_0` | Initial temperature difference |
-| `dT_5` | Temperature difference after 5 seconds |
-| `dT_10` | Temperature difference after 10 seconds |
-| `dT_20` | Temperature difference after 20 seconds |
-| `dT_30` | Temperature difference after 30 seconds |
-| `tiempo_hasta_dt5` | Time required to reach `dT = 5 °C` |
+| `momento_dia` | Time category used to represent morning, afternoon, or night |
+| `Tobj_0` | Object temperature at the beginning of the run |
+| `Tamb_0` | Ambient temperature at the beginning of the run |
+| `dT_0` | Initial filtered thermal difference |
+| `dT_5` | Filtered thermal difference at 5 seconds |
+| `dT_10` | Filtered thermal difference at 10 seconds |
+| `dT_20` | Filtered thermal difference at 20 seconds |
+| `dT_30` | Filtered thermal difference at 30 seconds |
+| `tiempo_hasta_dt5` | Total time from the beginning until `dT` reaches 5 °C |
 
-The learned relationship can be represented as:
+The project presentation described an earlier dataset version containing 22 samples. That number should be preserved as a historical result of that stage. The GitHub repository now contains the expanded 42-sample version.
 
-```text
-f(
-  momento_dia,
-  Tobj_0,
-  Tamb_0,
-  dT_0,
-  dT_5,
-  dT_10,
-  dT_20,
-  dT_30
-) = tiempo_hasta_dt5
+---
+
+## 4. Detailed Explanation of `train_model.py`
+
+### 4.1 Imported libraries
+
+```python
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras import layers
+import matplotlib.pyplot as plt
 ```
 
----
+`NumPy` manages numerical arrays and normalization. `pandas` reads the CSV and extracts its columns. `TensorFlow` and `Keras` define and train the neural network. `matplotlib` is imported for possible plots, although the current script does not yet create a graph.
 
-## Neural-Network Architecture
+### 4.2 Dataset loading
 
-The model is a fully connected feed-forward neural network.
-
-```text
-Input: 8 variables
-        ↓
-Dense layer: 16 neurons, ReLU
-        ↓
-Dense layer: 8 neurons, ReLU
-        ↓
-Output layer: 1 neuron, linear activation
+```python
+df = pd.read_csv("dataset_enfriamiento.csv")
+df.head()
 ```
 
-The training configuration is:
+The CSV is loaded into a DataFrame. `df.head()` is useful in a notebook because it displays the first rows and verifies that the column names and values were read correctly.
 
-| Parameter | Configuration |
-|---|---|
-| Model type | Feed-forward neural network |
-| First hidden layer | 16 neurons with ReLU |
-| Second hidden layer | 8 neurons with ReLU |
-| Output layer | 1 linear neuron |
-| Optimizer | Adam |
-| Loss function | Mean Squared Error |
-| Evaluation metric | Mean Absolute Error |
+When the code is executed as a normal `.py` file, `df.head()` does not automatically print anything. It can be replaced with:
 
-The training code is available at:
+```python
+print(df.head())
+```
 
-[AI Training Script](../ai/train_model.py)
+if terminal output is desired.
 
----
+### 4.3 Input and target separation
 
-## Data Normalization
+The code extracts eight input columns into `X` and the target column into `y`:
 
-Normalization is required because the input variables use different numerical scales.
+```python
+X = df[[
+    "momento_dia",
+    "Tobj_0",
+    "Tamb_0",
+    "dT_0",
+    "dT_5",
+    "dT_10",
+    "dT_20",
+    "dT_30"
+]].values.astype(np.float32)
 
-Each input variable is normalized using:
+y = df["tiempo_hasta_dt5"].values.astype(np.float32)
+```
 
-```text
+`X` has shape `[number_of_runs, 8]`. Each row is one experiment and each column is one input feature. `y` contains one cooling-time value for each row.
+
+The conversion to `float32` is important because TensorFlow Lite commonly uses 32-bit floating-point tensors.
+
+### 4.4 Normalization
+
+The code calculates one mean and one standard deviation for every input feature:
+
+```python
+X_mean = X.mean(axis=0)
+X_std = X.std(axis=0)
 X_norm = (X - X_mean) / X_std
 ```
 
-The target output is normalized using its own mean and standard deviation.
+The target is normalized independently:
 
-After inference, the normalized model output is converted back to seconds using:
+```python
+y_mean = y.mean()
+y_std = y.std()
+y_norm = (y - y_mean) / y_std
+```
+
+This transformation places the variables on comparable scales. It is essential because `momento_dia` only ranges from 0 to 2, while temperatures and cooling times can be much larger.
+
+The inverse transformation for the output is:
 
 ```text
 prediction_seconds = prediction_norm × y_std + y_mean
 ```
 
-The normalization parameters used during inference must be identical to the parameters calculated during training. Any difference between the training and deployment parameters can produce incorrect predictions.
+The values of `X_mean`, `X_std`, `y_mean`, and `y_std` are part of the deployed model. They must match the exact dataset and model used during training.
 
----
-
-## Training Process
-
-The training script performs the following operations:
-
-1. Loads the cooling dataset.
-2. Separates the eight input variables from the target output.
-3. Calculates the mean and standard deviation of the data.
-4. Normalizes the inputs and output.
-5. Randomly shuffles the samples.
-6. Divides the dataset into training and testing subsets.
-7. Creates the neural network.
-8. Trains the model using TensorFlow/Keras.
-9. Compares predicted values against real cooling times.
-10. Prints the normalization parameters.
-11. Converts the trained model to TensorFlow Lite.
-
-The model is trained before deployment. Training is not performed on the Raspberry Pi during normal operation.
-
----
-
-## TensorFlow Lite Conversion
-
-After training, the Keras model is converted to TensorFlow Lite and saved as:
+For the current 42-sample dataset, the calculated values are approximately:
 
 ```text
-arduino_model.tflite
+X_mean = [
+  1.000000,
+  72.963806,
+  25.007141,
+  48.407380,
+  47.586666,
+  46.184760,
+  43.152855,
+  40.231426
+]
+
+X_std = [
+  0.816497,
+  12.135606,
+  1.846039,
+  12.731888,
+  12.428539,
+  12.025522,
+  11.040464,
+  10.340449
+]
+
+y_mean = 576.5952
+y_std  = 141.5908
 ```
 
-TensorFlow Lite produces a smaller and more portable model that can be executed on embedded or resource-constrained platforms.
+These numbers should only be used with a model trained from this exact dataset and preprocessing pipeline.
 
-The conversion process separates two stages:
+### 4.5 Reproducible shuffling
+
+```python
+np.random.seed(42)
+idx = np.random.permutation(len(X_norm))
+X_norm = X_norm[idx]
+y_norm = y_norm[idx]
+```
+
+The rows are shuffled so that the split does not preserve an accidental ordering from the CSV. The fixed seed makes the permutation repeatable.
+
+### 4.6 Training and testing split
+
+```python
+train_size = int(0.8 * len(X_norm))
+
+X_train = X_norm[:train_size]
+y_train = y_norm[:train_size]
+
+X_test = X_norm[train_size:]
+y_test = y_norm[train_size:]
+```
+
+The first 80% of the shuffled data is used for training and the remaining 20% is used for testing. With only 42 samples, the testing set is small. Therefore, individual results can change noticeably if the split changes.
+
+### 4.7 Neural-network architecture
+
+```python
+model = tf.keras.Sequential([
+    layers.Dense(16, activation="relu", input_shape=(8,)),
+    layers.Dense(8, activation="relu"),
+    layers.Dense(1)
+])
+```
+
+The first hidden layer receives eight values and produces sixteen learned activations. The second hidden layer compresses them into eight activations. The final linear neuron outputs one continuous value.
+
+The ReLU activation is:
 
 ```text
-Training stage:
-Dataset → TensorFlow/Keras → trained model
-
-Deployment stage:
-trained model → TensorFlow Lite → inference
+ReLU(z) = max(0, z)
 ```
 
-The Raspberry Pi only executes the deployment stage.
+It allows the model to represent nonlinear thermal relationships instead of behaving like a single linear equation.
+
+### 4.8 Compilation
+
+```python
+model.compile(
+    optimizer="adam",
+    loss="mse",
+    metrics=["mae"]
+)
+```
+
+Adam updates the network weights. Mean squared error penalizes large prediction errors more strongly. Mean absolute error is displayed because it is easier to interpret as an average absolute difference in the normalized domain.
+
+### 4.9 Training
+
+```python
+history = model.fit(
+    X_train,
+    y_train,
+    epochs=500,
+    batch_size=4,
+    validation_data=(X_test, y_test),
+    verbose=1
+)
+```
+
+The model processes the training set 500 times. A batch size of four updates the weights after every four training examples. Validation data is evaluated after each epoch.
+
+Because the dataset is small, 500 epochs can cause overfitting. The training and validation losses should be plotted before claiming that the final epoch is the best model.
+
+### 4.10 Evaluation in real units
+
+```python
+pred_norm = model.predict(X_test)
+pred = pred_norm.flatten() * y_std + y_mean
+real = y_test * y_std + y_mean
+```
+
+The model output and test targets are converted back to seconds. The script then prints the prediction, real value, and absolute error for every test sample.
+
+### 4.11 TensorFlow Lite conversion
+
+```python
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+tflite_model = converter.convert()
+
+open("arduino_model.tflite", "wb").write(tflite_model)
+```
+
+This converts the Keras model to TensorFlow Lite and writes the binary file. The repository currently does not contain that generated file.
+
+The original commands that use `!echo`, `cat`, and `xxd` are notebook or shell commands. They work in environments such as Google Colab, but they are not standard Python syntax in a normal script. They are only required when generating `model.h` for direct ESP32 deployment. The final Raspberry architecture uses the `.tflite` file directly and does not require `model.h`.
 
 ---
 
-## Raspberry Pi Inference Process
+## 5. Detailed Explanation of `firmware/main.ino`
 
-The expected inference flow on the Raspberry Pi Zero 2 W is:
+The standalone firmware combines the MLX90614 acquisition, AI input capture, a physical cooling model, and TensorFlow Lite Micro inference on the ESP32-S3.
 
-1. Receive object and ambient temperatures through BLE.
-2. Detect the beginning of a new cooling sequence.
-3. Store `Tobj_0`, `Tamb_0`, and `dT_0`.
-4. Capture `dT_5`, `dT_10`, `dT_20`, and `dT_30`.
-5. Add the time-of-day category.
-6. Construct the eight-value input vector.
-7. Normalize each input using the training parameters.
-8. Execute the TensorFlow Lite interpreter.
-9. Read the normalized output.
-10. Convert the output back to seconds.
-11. Send the prediction to the ESP32 through BLE.
+### Sensor acquisition
 
-The TensorFlow Lite test performed on the Raspberry Pi confirmed that the model could be loaded correctly.
+The code initializes I2C and creates an `Adafruit_MLX90614` object. Each loop reads object and ambient temperature, then calculates the raw difference.
 
-The interpreter recognized:
+### Exponential filtering
+
+The filtered value is calculated as:
 
 ```text
-Input tensor shape:  [1, 8]
-Output tensor shape: [1, 1]
+dT_filtered = ALPHA_DT × dT_raw + (1 - ALPHA_DT) × previous_filtered_value
 ```
 
-This confirms that the model expects one sample containing eight variables and produces one numerical prediction.
+A value of `ALPHA_DT = 0.2` gives more weight to previous samples than to the newest measurement, reducing noise at the cost of a slower response.
+
+### Start detection
+
+The run does not begin immediately after one high measurement. `dT` must remain above `START_DT` for three consecutive samples. This is a simple debounce mechanism.
+
+### Temporal feature capture
+
+The code records the initial values and the filtered differences after 5, 10, 20, and 30 seconds. Once the complete vector exists, the AI model can produce a total-time prediction.
+
+### Physical-model estimation
+
+The code stores a moving window of 20 `dT` values. If exponential cooling is approximated by:
+
+```text
+dT(t) = dT0 × exp(-t / tau)
+```
+
+then:
+
+```text
+ln(dT(t)) = ln(dT0) - t / tau
+```
+
+Linear regression on `ln(dT)` estimates the slope `m`, and:
+
+```text
+tau = -1 / m
+```
+
+The estimated remaining time to reach `EPSILON = 5 °C` is:
+
+```text
+time_remaining = tau × ln(dT / EPSILON)
+```
+
+### TensorFlow Lite Micro inference
+
+The firmware loads the model from `model.h`, allocates a tensor arena, normalizes the eight values, invokes the interpreter, and denormalizes the output. This version is separate from the final Raspberry-based inference architecture.
 
 ---
 
-## IoT Communication Role
+## 6. Relationship with the Final Project
 
-Bluetooth Low Energy is used to connect the Raspberry Pi and the ESP32.
+Mini-Project 3 establishes the dataset, training process, normalization logic, model architecture, and standalone embedded behavior. The Final Project redistributes these tasks: the ESP32-S3 sends temperature measurements, and the Raspberry Pi executes the inference.
 
-In the target architecture, the Raspberry Pi acts as the BLE client. It connects to the ESP32-S3, subscribes to temperature notifications, receives approximately one temperature pair per second, and writes the final prediction back to the ESP32.
-
-The Raspberry Pi is therefore responsible for both AI processing and high-level communication logic.
+The repository does not currently include a generated `.tflite` file. Therefore, the training script is present and documented, but the final Raspberry Pi inference cannot be reproduced until the model is generated and placed in the expected location.
 
 ---
 
-## Mini-Project Result
+## 7. Result and Limitations
 
-Mini-Project 3 demonstrated that:
+The project proves that the cooling-time problem can be represented as an eight-input regression task. It also establishes a complete conversion path from CSV measurements to a TensorFlow Lite model.
 
-- the thermal prediction problem could be represented using eight input variables;
-- the neural network could be trained using TensorFlow/Keras;
-- the trained model could be converted to TensorFlow Lite;
-- the Raspberry Pi Zero 2 W could load the TFLite model;
-- the interpreter correctly identified the model input and output dimensions;
-- BLE could be used as the communication layer between the Raspberry Pi and the ESP32.
-
-The remaining task is to combine real-time BLE acquisition, temporal feature capture, TensorFlow Lite inference, and return transmission in one continuous application.
-
----
-
-## Conclusion
-
-Mini-Project 3 established the software and AI foundation of the thermal prediction system.
-
-The Raspberry Pi Zero 2 W was selected as the processing unit because it can receive measurements, preprocess data, execute TensorFlow Lite inference, and transmit the resulting prediction without retraining the model.
-
-This stage confirms that the AI component is technically compatible with the distributed final architecture and prepares the project for complete ESP32–Raspberry Pi integration.
+The main limitation is the dataset size and experimental variability. Forty-two samples are sufficient for a proof of concept, but not enough to demonstrate broad generalization. More repeated experiments under controlled conditions are required.
