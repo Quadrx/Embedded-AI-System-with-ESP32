@@ -1,87 +1,180 @@
-# BLE Communication Between Raspberry Pi and ESP32
+# Initial BLE Prototype: Raspberry Pi Server and ESP32 Client
 
-## Overview
+> **Prototype note:** This document describes the first BLE proof of concept. In this version, the Raspberry Pi acts as the BLE server and reads the MLX90614 directly, while the ESP32 acts as the BLE client. The Final Project reverses these roles: the ESP32-S3 becomes the BLE server and the Raspberry Pi Zero 2 W becomes the BLE client and AI-processing unit.
 
-This document describes an additional communication module developed as part of the project. In this module, a Raspberry Pi connected to an MLX90614 infrared sensor works as a Bluetooth Low Energy server, while an ESP32 works as a BLE client. The purpose of this stage is to read temperature data on the Raspberry Pi side and transmit it wirelessly to the ESP32 in real time.
+## 1. Purpose
 
-The Raspberry Pi is responsible for data acquisition. It reads both ambient temperature and object temperature through the I2C bus and publishes the measured values through a BLE characteristic. The ESP32 discovers the Raspberry Pi server, connects to it, subscribes to notifications, and displays the received information in the serial monitor.
+This prototype was created to verify that temperature measurements could be transmitted in real time between a Raspberry Pi and an ESP32 through Bluetooth Low Energy.
 
-## Objective
-
-The objective of this module is to establish a simple and functional BLE communication channel between a Raspberry Pi and an ESP32 for real-time transmission of thermal measurements obtained from the MLX90614 sensor.
-
-## File Structure
+The communication path is:
 
 ```text
-ble/
-├── esp32/
-│   └── ble_client.ino
-└── raspberry/
-    └── mlx_ble.py
+MLX90614 → Raspberry Pi → BLE notifications → ESP32 → Serial Monitor
 ```
 
-The file `ble/raspberry/mlx_ble.py` contains the BLE server implementation for the Raspberry Pi. The file `ble/esp32/ble_client.ino` contains the BLE client implementation for the ESP32.
+The related files are:
 
-## Raspberry Pi BLE Server
+```text
+ble/raspberry/mlx_ble.py
+ble/esp32/ble_client.ino
+```
 
-The Raspberry Pi script is written in Python and uses the MLX90614 sensor through I2C together with the `bless` library to expose a BLE service.
+---
 
-The program starts by initializing the I2C bus and the MLX90614 sensor. After that, it creates a BLE server named `raspberry_kevin`. A service is registered using the UUID `12345678-1234-5678-1234-56789abcdef0`, and a characteristic is created using the UUID `12345678-1234-5678-1234-56789abcdef1`.
+## 2. BLE Configuration
 
-This characteristic is configured with read and notify properties. Once the BLE server starts, the Raspberry Pi enters an infinite loop where it reads the ambient temperature and the object temperature from the sensor, formats the values as text, updates the BLE characteristic, and sends the value to subscribed clients.
+Both programs must use the same service and characteristic identifiers:
 
-The transmitted data follows this format:
+```text
+Service UUID:        12345678-1234-5678-1234-56789abcdef0
+Characteristic UUID: 12345678-1234-5678-1234-56789abcdef1
+Device name:         raspberry_kevin
+```
+
+The service groups the thermal communication functionality. The characteristic stores the latest text message and supports read and notify operations.
+
+---
+
+## 3. Raspberry Pi Code: `mlx_ble.py`
+
+### Imported modules
+
+```python
+import asyncio
+import board
+import busio
+import adafruit_mlx90614
+```
+
+`asyncio` manages the asynchronous BLE server loop. `board` and `busio` expose the Raspberry Pi I2C pins. `adafruit_mlx90614` communicates with the sensor.
+
+The Bless imports provide the GATT server, characteristic properties, and permissions.
+
+### I2C initialization
+
+```python
+i2c = busio.I2C(board.SCL, board.SDA)
+mlx = adafruit_mlx90614.MLX90614(i2c)
+```
+
+The Raspberry Pi opens its I2C bus and creates the sensor object. If wiring, permissions, or the I2C configuration are incorrect, the script fails before starting BLE.
+
+### BLE server creation
+
+```python
+server = BlessServer(name="raspberry_kevin")
+```
+
+The advertised name is important because the ESP32 searches for this exact text.
+
+The code adds the service and a characteristic with read and notify properties. The initial value is `Inicio`, which confirms that the characteristic exists before the first sensor sample.
+
+### Server start
+
+```python
+await server.start()
+```
+
+After this call, the Raspberry Pi begins advertising the service. The ESP32 can then discover and connect to it.
+
+### Sensor loop
+
+The code continuously reads:
+
+```python
+amb = mlx.ambient_temperature
+obj = mlx.object_temperature
+```
+
+It formats the values as:
 
 ```text
 OBJ:26.15,AMB:24.80
 ```
 
-In this message, `OBJ` represents object temperature and `AMB` represents ambient temperature.
+This format is human-readable and easy to debug, although it requires text parsing on the receiver.
 
-## ESP32 BLE Client
+### Characteristic update
 
-The ESP32 code is written in Arduino C++ and acts as a BLE client. The program scans nearby BLE devices and looks for one with the advertised name `raspberry_kevin`. When the correct device is found, the ESP32 stops scanning and attempts to connect.
+The text is encoded to bytes and assigned to the characteristic. `server.update_value()` sends a notification to subscribed clients.
 
-After a successful connection, the ESP32 searches for the BLE service using the expected UUID and then locates the target characteristic. If the characteristic supports notifications, the ESP32 subscribes to them and waits for updates.
+The loop waits one second before the next update, producing approximately one message per second.
 
-Every time a new BLE notification is received, the callback function processes the incoming bytes and prints the received text to the serial monitor. In this way, the ESP32 continuously displays the temperatures transmitted by the Raspberry Pi.
+---
 
-## Communication Flow
+## 4. ESP32 Code: `ble_client.ino`
 
-The complete communication process works as follows.
+### BLE initialization
 
-First, the MLX90614 sensor measures the ambient and object temperature. Then the Raspberry Pi reads these values through I2C. After acquiring the measurements, the Raspberry Pi formats the data as a text string and updates the BLE characteristic. The BLE server sends this value as a notification. The ESP32, acting as a client, receives the notification, decodes the text, and prints the result in the serial monitor.
+The ESP32 includes the BLE device, scan, and client classes. It defines the same UUIDs used by the Raspberry Pi.
 
-This creates a complete real-time data path from the thermal sensor to the wireless receiver.
+### Notification callback
 
-## UUID Configuration
-
-The BLE communication uses the following identifiers:
-
-```text
-Service UUID:        12345678-1234-5678-1234-56789abcdef0
-Characteristic UUID: 12345678-1234-5678-1234-56789abcdef1
-Device Name:         raspberry_kevin
+```cpp
+static void notifyCallback(...)
 ```
 
-These values must match on both the Raspberry Pi server and the ESP32 client for the connection to work properly.
+BLE notifications arrive as a byte array. The callback iterates over the bytes, converts each one to a character, and prints the complete text in the serial monitor.
 
-## Software and Technologies
+The prototype does not separate `OBJ` and `AMB` into floating-point variables. It only verifies that the message is received correctly.
 
-This module combines Python on Raspberry Pi and Arduino C++ on ESP32. The Raspberry Pi side uses Python together with the `bless` BLE library, while the ESP32 side uses the Arduino BLE libraries. The sensor communication is performed through I2C, and the wireless communication is performed through Bluetooth Low Energy.
+### Scan callback
 
-The main technologies used in this module are Raspberry Pi, ESP32, MLX90614, Python, Arduino IDE, BLE, and I2C.
+`MyAdvertisedDeviceCallbacks::onResult()` is called for every discovered BLE device. The code prints the device name and compares it against `raspberry_kevin`.
 
-## Practical Use
+When the expected server is found, the ESP32 stores the device information, stops scanning, and sets `doConnect = true`.
 
-This BLE module is useful when sensing and embedded visualization are distributed across different devices. It can also serve as a communication layer for future versions of the project in which the sensing stage is separated from the processing or display stage.
+### Connection function
 
-Because the transmitted message uses a human-readable format, the module is also convenient for debugging and demonstration purposes.
+`connectToServer()` creates a BLE client and connects to the discovered device. It then locates the service and characteristic using the configured UUIDs.
 
-## Expected Result
+Each operation is checked. If the service or characteristic is not found, the client disconnects and reports the failure.
 
-When the system operates correctly, the Raspberry Pi prints the transmitted data continuously, and the ESP32 shows the same information in the serial monitor after receiving BLE notifications. The result is a working wireless temperature monitoring link between both devices.
+If the characteristic supports notifications, the client registers `notifyCallback` and becomes subscribed.
 
-## Conclusion
+### Main loop and reconnection
 
-This BLE module demonstrates a practical communication layer between a Raspberry Pi and an ESP32. The Raspberry Pi successfully acquires temperature data from the MLX90614 sensor and publishes it through BLE, while the ESP32 successfully receives and displays the transmitted values. This makes the module a useful extension of the main thermal monitoring project and a solid basis for future distributed embedded systems.
+The main loop attempts the connection after discovery. Once connected, it periodically checks `pClient->isConnected()`.
+
+If the link is lost, the code marks the connection as inactive and restarts the scan. This gives the prototype a simple recovery mechanism.
+
+---
+
+## 5. Complete Prototype Flow
+
+```text
+1. MLX90614 measures object and ambient temperature.
+2. Raspberry Pi reads both values through I2C.
+3. Raspberry Pi formats OBJ and AMB as text.
+4. Bless updates the BLE characteristic.
+5. ESP32 receives a notification.
+6. ESP32 prints the text in the serial monitor.
+7. The sequence repeats every second.
+```
+
+---
+
+## 6. Installation
+
+The Raspberry Pi packages can be installed manually:
+
+```bash
+pip install bless adafruit-blinka adafruit-circuitpython-mlx90614
+```
+
+I2C must be enabled in the Raspberry Pi configuration. The script can then be executed with:
+
+```bash
+python3 ble/raspberry/mlx_ble.py
+```
+
+The ESP32 code is uploaded through Arduino IDE. The serial monitor should be opened at 115200 baud.
+
+---
+
+## 7. Result
+
+This implementation verifies the BLE communication layer. It proves that a Raspberry Pi can advertise sensor data and that an ESP32 can discover the device, connect, subscribe, receive notifications, and recover from a lost link.
+
+It is retained as development evidence, but it should not be confused with the final architecture.
+
